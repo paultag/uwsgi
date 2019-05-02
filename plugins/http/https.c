@@ -179,13 +179,18 @@ int hr_https_add_vars(struct http_session *hr, struct corerouter_peer *peer, str
 #endif
                 hr->ssl_client_cert = SSL_get_peer_certificate(hr->ssl);
                 if (hr->ssl_client_cert) {
-                        int client_cert_len;
-                        unsigned char *client_cert_der = NULL;
-                        client_cert_len = i2d_X509(hr->ssl_client_cert, &client_cert_der);
-                        if (client_cert_len < 0) return -1;
-			int ret = uwsgi_buffer_append_keyval(out, "HTTPS_CLIENT_CERTIFICATE", 24, (char*)client_cert_der, client_cert_len);
-			OPENSSL_free(client_cert_der);
-			if (ret) return -1;
+                        BIO *pem_output = BIO_new(BIO_s_mem());
+                        if (pem_output == NULL) return -1;
+                        int ret = PEM_write_bio_X509(pem_output, hr->ssl_client_cert);
+                        if (ret) {
+                            OPENSSL_free(pem_output);
+                            return -1;
+                        }
+                        unsigned char *client_cert_pem = NULL;
+                        long client_cert_pem_len = BIO_get_mem_data(pem_output, &client_cert_pem);
+                        ret = uwsgi_buffer_append_keyval(out, "HTTPS_CLIENT_CERTIFICATE_PEM", 28, (char*)client_cert_pem, client_cert_pem_len);
+                        OPENSSL_free(pem_output);
+                        if (ret) return -1;
 
                         X509_NAME *name = X509_get_subject_name(hr->ssl_client_cert);
                         if (name) {
